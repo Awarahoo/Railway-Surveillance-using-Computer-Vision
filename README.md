@@ -46,7 +46,7 @@ This project integrates weapon detection, trespassing detection, fall/slip detec
 ### 1️⃣ Clone the repo:
 ```bash
 git clone https://github.com/Awarahoo/Railway-Surveillance-using-Computer-Vision
-cd Smart-Railway-Surveillance-System
+cd Railway-Surveillance-using-Computer-Vision
 ```
 ### 2️⃣ Install dependencies:
 ```bash
