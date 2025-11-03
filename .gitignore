@@ -1,0 +1,10 @@
+# Exclude local virtual environment
+venv/
+
+# Exclude test video files
+gun.mp4
+guntest.mp4
+tracktestvideo.mp4
+*.avi
+*.mov
+
