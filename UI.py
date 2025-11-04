@@ -83,7 +83,7 @@ class SecuritySystemApp:
         try:
             self.weapon_model = YOLO(r"runs\detect\train\weights\best.pt")
             self.track_model = YOLO(r"runs\segment\track_segmentation_1\weights\best.pt")
-            self.person_model = YOLO("yolov8n.pt")
+            self.person_model = YOLO("yolo11n.pt")
             self.crowd_model = YOLO("yolo11n.pt")
             # Initialize fall detection model
             try:
@@ -775,7 +775,7 @@ class SecuritySystemApp:
                 cls = int(box.cls[0])
                 label = self.fall_model.names[cls]
                 
-                if label.lower() == "fall":
+                if label.lower() == "fall-detected":
                     fall_detected = True
                     
                     # Draw bounding box in red for fall detection
