@@ -12,17 +12,17 @@ class AlertWindow(tk.Toplevel):
     def __init__(self, parent, message):
         super().__init__(parent)
         self.title("ALERT!")
-        self.geometry("400x200")
+        self.geometry("300x100")
         self.attributes('-topmost', True)
         self.configure(bg='black')
         
         alert_label = tk.Label(
             self, 
             text=message, 
-            font=('Helvetica', 24, 'bold'), 
+            font=('Helvetica', 16, 'bold'), 
             fg='red', 
             bg='black',
-            wraplength=380
+            wraplength=260
         )
         alert_label.pack(expand=True, fill=tk.BOTH, padx=20, pady=20)
         
@@ -30,7 +30,7 @@ class AlertWindow(tk.Toplevel):
             self, 
             text="OK", 
             command=self.destroy,
-            font=('Helvetica', 14),
+            font=('Helvetica', 8),
             bg='red',
             fg='white'
         )
@@ -40,7 +40,7 @@ class AlertWindow(tk.Toplevel):
 class SecuritySystemApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Smart Security System")
+        self.root.title("Smart Railway Surveillance System")
         self.root.geometry("1400x900")
         
         # Initialize all attributes
