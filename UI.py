@@ -102,11 +102,40 @@ class SecuritySystemApp:
     
     def setup_ui(self):
         """Setup the main UI components"""
+        # Dark-only theme configuration
+        BG = '#0f0f10'
+        CARD = '#17171a'
+        FG = '#e4e4e7'
+        ACCENT = '#3b82f6'
+        ACCENT_HOVER = '#2563eb'
+
+        self.root.configure(bg=BG)
+
         style = ttk.Style()
-        style.configure('TNotebook.Tab', font=('Helvetica', 10, 'bold'))
-        style.configure('Alert.TLabel', foreground='red', font=('Helvetica', 16, 'bold'))
-        
-        main_frame = ttk.Frame(self.root)
+        try:
+            style.theme_use('clam')
+        except Exception:
+            pass
+
+        # Notebook and tabs
+        style.configure('TNotebook', background=BG, borderwidth=0)
+        style.configure('TNotebook.Tab', font=('Segoe UI', 10, 'bold'), padding=(16, 8),
+                        background=CARD, foreground=FG)
+        style.map('TNotebook.Tab', background=[('selected', ACCENT)], foreground=[('selected', 'white')])
+
+        # Containers and labels
+        style.configure('TFrame', background=BG)
+        style.configure('TLabelframe', background=BG, foreground=FG, font=('Segoe UI', 10, 'bold'))
+        style.configure('TLabelframe.Label', background=BG, foreground=FG)
+        style.configure('TLabel', background=BG, foreground=FG, font=('Segoe UI', 10))
+        style.configure('Alert.TLabel', background=CARD, foreground='#ff4545', font=('Segoe UI', 13, 'bold'))
+
+        # Buttons and sliders
+        style.configure('TButton', font=('Segoe UI', 10, 'bold'), padding=(12, 8))
+        style.map('TButton', foreground=[('!disabled', 'white')], background=[('!disabled', ACCENT), ('active', ACCENT_HOVER)])
+        style.configure('Horizontal.TScale', background=BG)
+
+        main_frame = ttk.Frame(self.root, style='TFrame')
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         self.notebook = ttk.Notebook(main_frame)
@@ -119,7 +148,7 @@ class SecuritySystemApp:
         
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
         
-        alert_frame = ttk.LabelFrame(main_frame, text="System Alerts", height=150)
+        alert_frame = ttk.LabelFrame(main_frame, text="System Alerts", height=150, style='TLabelframe')
         alert_frame.pack(fill=tk.X, pady=(5,0))
         alert_frame.pack_propagate(False)
         
@@ -127,21 +156,21 @@ class SecuritySystemApp:
             alert_frame, 
             height=8, 
             state=tk.DISABLED,
-            font=('Helvetica', 10)
+            font=('Consolas', 10),
+            bg=CARD,
+            fg=FG,
+            insertbackground=FG,
+            selectbackground=ACCENT,
+            relief=tk.FLAT
         )
-        self.alert_text.tag_config('important', foreground='red', font=('Helvetica', 10, 'bold'))
+        self.alert_text.tag_config('important', foreground='#ff4545', font=('Consolas', 10, 'bold'))
         
         scrollbar = ttk.Scrollbar(alert_frame, command=self.alert_text.yview)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.alert_text.config(yscrollcommand=scrollbar.set)
         self.alert_text.pack(fill=tk.BOTH, expand=True)
         
-        self.current_alert = ttk.Label(
-            main_frame, 
-            text="", 
-            style='Alert.TLabel',
-            wraplength=1200
-        )
+        self.current_alert = ttk.Label(main_frame, text="", style='Alert.TLabel', wraplength=1200)
         self.current_alert.pack(fill=tk.X, pady=(5,0))
     
     def setup_weapon_detection_tab(self):
