@@ -18,6 +18,11 @@ def fall_alert():
     print(f"⚠️ ALERT: Fall Detected!!")
     return {"alert": "Fall detected! Emergency alert triggered!"}
 
+@app.get("/fire_alert")
+def fire_alert():
+    print(f"⚠️ ALERT: Fire Detected!!")
+    return {"alert": "Fire detected! Emergency alert triggered!"}
+
 @app.get("/crime_alert")
 def crime_alert():
     print(f"⚠️ ALERT: Criminal Activity Detected!!")
