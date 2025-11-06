@@ -86,8 +86,8 @@ class SecuritySystemApp:
     def initialize_models(self):
         """Initialize all the required models"""
         try:
-            self.weapon_model = YOLO(r"runs\detect\train\weights\best.pt")
-            self.track_model = YOLO(r"runs\segment\track_segmentation_1\weights\best.pt")
+            self.weapon_model = YOLO("weapon.pt")
+            self.track_model = YOLO("train_segmented.pt")
             self.person_model = YOLO("yolo11n.pt")
             self.crowd_model = YOLO("yolo11n.pt")
             # Initialize fall detection model
@@ -499,7 +499,7 @@ class SecuritySystemApp:
         display_frame = frame.copy()
         count_person = 0
 
-        results = self.crowd_model(frame, conf=self.crowd_confidence_var.get())
+        results = self.crowd_model(frame, conf=self.crowd_confidence_var.get(), verbose=False)
         res0 = results[0]
         for box in res0.boxes:
             cls = int(box.cls[0])
@@ -637,7 +637,7 @@ class SecuritySystemApp:
         fire_detected = False
         smoke_detected = False
         
-        results = self.fire_model(frame, stream=True, conf=self.fire_confidence_var.get())
+        results = self.fire_model(frame, stream=True, conf=self.fire_confidence_var.get(), verbose=False)
         
         for r in results:
             boxes = r.boxes
@@ -805,7 +805,7 @@ class SecuritySystemApp:
             return frame
 
         display_frame = frame.copy()
-        results = self.dustbin_model(frame, conf=self.dustbin_confidence_var.get())
+        results = self.dustbin_model(frame, conf=self.dustbin_confidence_var.get(), verbose=False)
         res0 = results[0]
 
         # Count per label
@@ -1028,7 +1028,7 @@ class SecuritySystemApp:
         display_frame = frame.copy()
         weapon_detected = False
         
-        results = self.weapon_model(frame, stream=True, conf=self.confidence_var.get())
+        results = self.weapon_model(frame, stream=True, conf=self.confidence_var.get(), verbose=False)
         
         for r in results:
             boxes = r.boxes
@@ -1066,7 +1066,7 @@ class SecuritySystemApp:
         height, width = frame.shape[:2]
         person_detected_on_track = False
         
-        track_results = self.track_model(frame)[0]
+        track_results = self.track_model(frame, verbose=False)[0]
         track_mask = None
 
         if track_results.masks:
@@ -1079,7 +1079,7 @@ class SecuritySystemApp:
             colored_mask[track_mask == 1] = (0, 0, 255)
             display_frame = cv2.addWeighted(display_frame, 1.0, colored_mask, 0.5, 0)
 
-        person_results = self.person_model(frame)[0]
+        person_results = self.person_model(frame, verbose=False)[0]
 
         for box in person_results.boxes:
             cls = int(box.cls[0])
@@ -1116,7 +1116,7 @@ class SecuritySystemApp:
         display_frame = frame.copy()
         fall_detected = False
         
-        results = self.fall_model(frame, stream=True, conf=self.fall_confidence_var.get())
+        results = self.fall_model(frame, stream=True, conf=self.fall_confidence_var.get(), verbose=False)
         
         for r in results:
             boxes = r.boxes
