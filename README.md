@@ -26,6 +26,9 @@ An AI-powered, desktop-based surveillance suite for railway safety: weapon detec
 - Fire/Smoke: `fire.pt` (labels: "Fire", "Smoke")
 - Dustbin health: `dustbin.pt`
 
+### Demo Video Link 
+- https://drive.google.com/drive/folders/1OFBQWhs9xsoZTGFOhjN9iP4FzsGngUt-?usp=drive_link
+
 ## Setup
 
 1. Clone
