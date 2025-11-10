@@ -49,7 +49,12 @@ class SecuritySystemApp:
         self.trespassing_alert_sent = False
         self.weapon_alert_time = 0
         self.trespassing_alert_time = 0
+        self.fall_alert_time = 0
         self.alert_cooldown = 5
+        
+        # Shared person count between trespassing and crowd detection
+        self.last_person_count = 0
+        
         self.cap = None
         self.video_capture = None
         self.current_frame = None
@@ -86,7 +91,7 @@ class SecuritySystemApp:
     def initialize_models(self):
         """Initialize all the required models"""
         try:
-            self.weapon_model = YOLO("weapon.pt")
+            self.weapon_model = None  # Weapon detection disabled
             self.track_model = YOLO("train_segmented.pt")
             self.person_model = YOLO("yolo11n.pt")
             self.crowd_model = YOLO("yolo11n.pt")
@@ -101,29 +106,9 @@ class SecuritySystemApp:
             except Exception as e:
                 print(f"Warning: Failed to initialize fall detection model: {str(e)}. Fall detection will be disabled.")
                 self.fall_model = None
-            # Initialize fire detection model
-            try:
-                fire_model_path = "fire.pt"
-                if os.path.exists(fire_model_path):
-                    self.fire_model = YOLO(fire_model_path)
-                else:
-                    print(f"Warning: Fire detection model not found at {fire_model_path}. Fire detection will be disabled.")
-                    self.fire_model = None
-            except Exception as e:
-                print(f"Warning: Failed to initialize fire detection model: {str(e)}. Fire detection will be disabled.")
-                self.fire_model = None
-
-            # Initialize dustbin health model
-            try:
-                dustbin_model_path = "dustbin.pt"
-                if os.path.exists(dustbin_model_path):
-                    self.dustbin_model = YOLO(dustbin_model_path)
-                else:
-                    print(f"Warning: Dustbin model not found at {dustbin_model_path}. Dustbin detection will be disabled.")
-                    self.dustbin_model = None
-            except Exception as e:
-                print(f"Warning: Failed to initialize dustbin model: {str(e)}. Dustbin detection will be disabled.")
-                self.dustbin_model = None
+            # Fire and dustbin detection disabled
+            self.fire_model = None
+            self.dustbin_model = None
         except Exception as e:
             messagebox.showerror("Error", f"Failed to initialize models: {str(e)}")
             self.root.destroy()
@@ -166,17 +151,8 @@ class SecuritySystemApp:
         main_frame = ttk.Frame(self.root, style='TFrame')
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        self.notebook = ttk.Notebook(main_frame)
-        self.notebook.pack(fill=tk.BOTH, expand=True)
-        
-        self.setup_weapon_detection_tab()
-        self.setup_trespassing_detection_tab()
-        self.setup_fall_detection_tab()
-        self.setup_crowd_detection_tab()
-        self.setup_fire_detection_tab()
-        self.setup_dustbin_detection_tab()
-        
-        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+        # Unified Dashboard (no tabs)
+        self.setup_unified_dashboard(main_frame)
         
         alert_frame = ttk.LabelFrame(main_frame, text="System Alerts", height=150, style='TLabelframe')
         alert_frame.pack(fill=tk.X, pady=(5,0))
@@ -202,6 +178,122 @@ class SecuritySystemApp:
         
         self.current_alert = ttk.Label(main_frame, text="", style='Alert.TLabel', wraplength=1200)
         self.current_alert.pack(fill=tk.X, pady=(5,0))
+    
+    def setup_unified_dashboard(self, parent):
+        """Setup unified dashboard with multi-model selection"""
+        dashboard = ttk.Frame(parent)
+        dashboard.pack(fill=tk.BOTH, expand=True, pady=(0,5))
+        
+        # Video display
+        video_frame = ttk.LabelFrame(dashboard, text="Detection Feed")
+        video_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        self.unified_video_label = ttk.Label(video_frame)
+        self.unified_video_label.pack(fill=tk.BOTH, expand=True)
+        
+        # Control panel
+        control_frame = ttk.Frame(dashboard, width=300)
+        control_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=5, pady=5)
+        control_frame.pack_propagate(False)
+        
+        # Model selection
+        model_frame = ttk.LabelFrame(control_frame, text="Select Models")
+        model_frame.pack(fill=tk.X, pady=5)
+        
+        self.model_vars = {
+            'trespassing_detection': tk.BooleanVar(value=False),
+            'fall_detection': tk.BooleanVar(value=False),
+            'crowd_detection': tk.BooleanVar(value=False),
+        }
+        
+        ttk.Checkbutton(model_frame, text="Trespassing Detection", 
+                       variable=self.model_vars['trespassing_detection']).pack(anchor='w', padx=8, pady=2)
+        ttk.Checkbutton(model_frame, text="Fall Detection", 
+                       variable=self.model_vars['fall_detection']).pack(anchor='w', padx=8, pady=2)
+        ttk.Checkbutton(model_frame, text="Crowd Density", 
+                       variable=self.model_vars['crowd_detection']).pack(anchor='w', padx=8, pady=2)
+        
+        # Controls
+        ctrl_frame = ttk.LabelFrame(control_frame, text="Controls")
+        ctrl_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Button(ctrl_frame, text="Select Video File", 
+                  command=self.select_unified_video).pack(fill=tk.X, pady=5)
+        
+        self.start_file_btn = ttk.Button(ctrl_frame, text="Start File Detection", 
+                                         command=lambda: self.start_unified_detection('file'),
+                                         state=tk.DISABLED)
+        self.start_file_btn.pack(fill=tk.X, pady=5)
+        
+        ttk.Button(ctrl_frame, text="Start Realtime Detection", 
+                  command=lambda: self.start_unified_detection('realtime')).pack(fill=tk.X, pady=5)
+        
+        self.stop_btn = ttk.Button(ctrl_frame, text="Stop Detection", 
+                                   command=self.stop_unified_detection,
+                                   state=tk.DISABLED)
+        self.stop_btn.pack(fill=tk.X, pady=5)
+        
+        # Confidence sliders and counters
+        self.confidence_var = tk.DoubleVar(value=0.5)
+        self.fall_confidence_var = tk.DoubleVar(value=0.5)
+        self.crowd_confidence_var = tk.DoubleVar(value=0.4)
+        self.crowd_count_var = tk.IntVar(value=0)
+        
+        # Add crowd counter display
+        count_frame = ttk.LabelFrame(control_frame, text="People Count")
+        count_frame.pack(fill=tk.X, pady=5)
+        self.crowd_count_label = ttk.Label(count_frame, text="Current: 0")
+        self.crowd_count_label.pack(fill=tk.X, padx=5, pady=5)
+    
+    def select_unified_video(self):
+        file_path = filedialog.askopenfilename(
+            title="Select Video File",
+            filetypes=[("Video files", "*.mp4 *.avi *.mov")]
+        )
+        if file_path:
+            self.unified_video_path = file_path
+            self.add_alert(f"Video selected: {os.path.basename(file_path)}")
+            self.start_file_btn.config(state=tk.NORMAL)
+    
+    def start_unified_detection(self, mode):
+        selected = [k for k, v in self.model_vars.items() if v.get()]
+        if not selected:
+            messagebox.showwarning("Warning", "Please select at least one model!")
+            return
+        
+        if mode == 'file' and not hasattr(self, 'unified_video_path'):
+            messagebox.showwarning("Warning", "Please select a video file first!")
+            return
+        
+        # Open capture
+        if mode == 'realtime':
+            self.cap = cv2.VideoCapture(0)
+            self.cap.set(cv2.CAP_PROP_FPS, 30)
+        else:
+            self.video_capture = cv2.VideoCapture(self.unified_video_path)
+        
+        # Activate selected models
+        for k in self.modules.keys():
+            self.modules[k]["active"] = (k in selected)
+        
+        self.add_alert(f"Started: {', '.join([s.replace('_', ' ').title() for s in selected])} ({mode})")
+        self.stop_btn.config(state=tk.NORMAL)
+        self.start_file_btn.config(state=tk.DISABLED)
+    
+    def stop_unified_detection(self):
+        for k in self.modules.keys():
+            self.modules[k]["active"] = False
+        
+        if self.video_capture:
+            self.video_capture.release()
+            self.video_capture = None
+        if self.cap:
+            self.cap.release()
+            self.cap = None
+        
+        self.add_alert("Detection stopped")
+        self.stop_btn.config(state=tk.DISABLED)
+        self.start_file_btn.config(state=tk.NORMAL if hasattr(self, 'unified_video_path') else tk.DISABLED)
     
     def setup_weapon_detection_tab(self):
         """Setup the weapon detection module tab"""
@@ -497,16 +589,29 @@ class SecuritySystemApp:
     def process_crowd_detection(self, frame):
         """Process frame for crowd density detection and counting"""
         display_frame = frame.copy()
-        count_person = 0
-
-        results = self.crowd_model(frame, conf=self.crowd_confidence_var.get(), verbose=False)
-        res0 = results[0]
-        for box in res0.boxes:
-            cls = int(box.cls[0])
-            if self.crowd_model.names[cls] == 'person':
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
-                count_person += 1
+        
+        # If trespassing detection is also active, use its person count
+        if self.modules["trespassing_detection"]["active"] and hasattr(self, 'last_person_count'):
+            count_person = self.last_person_count
+            # Draw bounding boxes for visualization
+            results = self.crowd_model(frame, conf=self.crowd_confidence_var.get(), verbose=False)
+            res0 = results[0]
+            for box in res0.boxes:
+                cls = int(box.cls[0])
+                if self.crowd_model.names[cls] == 'person':
+                    x1, y1, x2, y2 = map(int, box.xyxy[0])
+                    cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
+        else:
+            # Run independent crowd detection
+            count_person = 0
+            results = self.crowd_model(frame, conf=self.crowd_confidence_var.get(), verbose=False)
+            res0 = results[0]
+            for box in res0.boxes:
+                cls = int(box.cls[0])
+                if self.crowd_model.names[cls] == 'person':
+                    x1, y1, x2, y2 = map(int, box.xyxy[0])
+                    cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
+                    count_person += 1
 
         self.crowd_count_var.set(count_person)
         self.crowd_count_label.config(text=f"Current: {count_person}")
@@ -1065,6 +1170,7 @@ class SecuritySystemApp:
         display_frame = frame.copy()
         height, width = frame.shape[:2]
         person_detected_on_track = False
+        person_count = 0
         
         track_results = self.track_model(frame, verbose=False)[0]
         track_mask = None
@@ -1086,6 +1192,7 @@ class SecuritySystemApp:
             if self.person_model.names[cls] == 'person':
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
                 cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+                person_count += 1
 
                 cv2.circle(display_frame, (cx, cy), 5, (0, 255, 0), -1)
                 cv2.putText(display_frame, "Person", (x1, y1 - 10),
@@ -1094,6 +1201,9 @@ class SecuritySystemApp:
                 if track_mask is not None and track_mask[cy, cx] == 1:
                     person_detected_on_track = True
 
+        # Update shared person count for crowd detection
+        self.last_person_count = person_count
+        
         current_time = time.time()
         if person_detected_on_track and current_time - self.trespassing_alert_time > self.alert_cooldown:
             alert_message = "🚨 Person detected on railway track!"
@@ -1152,120 +1262,43 @@ class SecuritySystemApp:
         return display_frame
     
     def update_video(self):
-        """Main video update loop"""
+        """Main video update loop - supports multiple models simultaneously"""
         if self.running:
             frame = None
-            if self.modules["weapon_detection"]["active"]:
-                if self.weapon_detection_mode == 'realtime' and self.cap is not None:
+            active_models = [k for k in ("trespassing_detection", "fall_detection", "crowd_detection") 
+                           if self.modules[k]["active"]]
+            
+            if active_models:
+                # Read frame from active source
+                if self.cap is not None:
                     ret, frame = self.cap.read()
                     if not ret:
                         frame = None
                 elif self.video_capture is not None:
                     ret, frame = self.video_capture.read()
                     if not ret:
-                        self.stop_weapon_detection()
-                        frame = None
-            elif self.modules["trespassing_detection"]["active"]:
-                if self.trespassing_detection_mode == 'realtime' and self.cap is not None:
-                    ret, frame = self.cap.read()
-                    if not ret:
-                        frame = None
-                elif self.video_capture is not None:
-                    ret, frame = self.video_capture.read()
-                    if not ret:
-                        self.stop_trespassing_detection()
-                        frame = None
-            elif self.modules["fall_detection"]["active"]:
-                if self.fall_detection_mode == 'realtime' and self.cap is not None:
-                    ret, frame = self.cap.read()
-                    if not ret:
-                        frame = None
-                elif self.video_capture is not None:
-                    ret, frame = self.video_capture.read()
-                    if not ret:
-                        self.stop_fall_detection()
-                        frame = None
-            elif self.modules["crowd_detection"]["active"]:
-                if self.crowd_detection_mode == 'realtime' and self.cap is not None:
-                    ret, frame = self.cap.read()
-                    if not ret:
-                        frame = None
-                elif self.video_capture is not None:
-                    ret, frame = self.video_capture.read()
-                    if not ret:
-                        self.stop_crowd_detection()
-                        frame = None
-            elif self.modules["fire_detection"]["active"]:
-                if self.fire_detection_mode == 'realtime' and self.cap is not None:
-                    ret, frame = self.cap.read()
-                    if not ret:
-                        frame = None
-                elif self.video_capture is not None:
-                    ret, frame = self.video_capture.read()
-                    if not ret:
-                        self.stop_fire_detection()
-                        frame = None
-            elif self.modules["dustbin_detection"]["active"]:
-                if self.dustbin_detection_mode == 'realtime' and self.cap is not None:
-                    ret, frame = self.cap.read()
-                    if not ret:
-                        frame = None
-                elif self.video_capture is not None:
-                    ret, frame = self.video_capture.read()
-                    if not ret:
-                        self.stop_dustbin_detection()
+                        self.stop_unified_detection()
                         frame = None
             
             if frame is not None:
                 frame = cv2.resize(frame, (640, 480))
+                processed_frame = frame.copy()
                 
-                if self.modules["weapon_detection"]["active"]:
-                    processed_frame = self.process_weapon_detection(frame)
-                    img = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
-                    img = Image.fromarray(img)
-                    imgtk = ImageTk.PhotoImage(image=img)
-                    self.weapon_video_label.imgtk = imgtk
-                    self.weapon_video_label.configure(image=imgtk)
+                # Apply all active models sequentially to overlay detections
+                if "trespassing_detection" in active_models:
+                    processed_frame = self.process_trespassing_detection(processed_frame)
+                if "fall_detection" in active_models:
+                    processed_frame = self.process_fall_detection(processed_frame)
+                if "crowd_detection" in active_models:
+                    processed_frame = self.process_crowd_detection(processed_frame)
                 
-                if self.modules["trespassing_detection"]["active"]:
-                    processed_frame = self.process_trespassing_detection(frame)
-                    img = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
-                    img = Image.fromarray(img)
-                    imgtk = ImageTk.PhotoImage(image=img)
-                    self.trespassing_video_label.imgtk = imgtk
-                    self.trespassing_video_label.configure(image=imgtk)
-                
-                if self.modules["fall_detection"]["active"]:
-                    processed_frame = self.process_fall_detection(frame)
-                    img = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
-                    img = Image.fromarray(img)
-                    imgtk = ImageTk.PhotoImage(image=img)
-                    self.fall_video_label.imgtk = imgtk
-                    self.fall_video_label.configure(image=imgtk)
-
-                if self.modules["crowd_detection"]["active"]:
-                    processed_frame = self.process_crowd_detection(frame)
-                    img = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
-                    img = Image.fromarray(img)
-                    imgtk = ImageTk.PhotoImage(image=img)
-                    self.crowd_video_label.imgtk = imgtk
-                    self.crowd_video_label.configure(image=imgtk)
-
-                if self.modules["fire_detection"]["active"]:
-                    processed_frame = self.process_fire_detection(frame)
-                    img = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
-                    img = Image.fromarray(img)
-                    imgtk = ImageTk.PhotoImage(image=img)
-                    self.fire_video_label.imgtk = imgtk
-                    self.fire_video_label.configure(image=imgtk)
-
-                if self.modules["dustbin_detection"]["active"]:
-                    processed_frame = self.process_dustbin_detection(frame)
-                    img = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
-                    img = Image.fromarray(img)
-                    imgtk = ImageTk.PhotoImage(image=img)
-                    self.dustbin_video_label.imgtk = imgtk
-                    self.dustbin_video_label.configure(image=imgtk)
+                # Display on unified label
+                img = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(img)
+                imgtk = ImageTk.PhotoImage(image=img)
+                if hasattr(self, 'unified_video_label'):
+                    self.unified_video_label.imgtk = imgtk
+                    self.unified_video_label.configure(image=imgtk)
         
         self.root.after(10, self.update_video)
     
