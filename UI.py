@@ -50,7 +50,12 @@ class SecuritySystemApp:
         self.weapon_alert_time = 0
         self.trespassing_alert_time = 0
         self.fall_alert_time = 0
-        self.alert_cooldown = 5
+        
+        # Individual cooldown periods for each alert type (in seconds)
+        self.weapon_alert_cooldown = 5
+        self.trespassing_alert_cooldown = 5
+        self.fall_alert_cooldown = 5
+        self.fire_alert_cooldown = 5
         
         # Shared person count between trespassing and crowd detection
         self.last_person_count = 0
@@ -64,7 +69,6 @@ class SecuritySystemApp:
         self.crowd_detection_mode = None
         self.fire_detection_mode = None
         self.dustbin_detection_mode = None
-        self.fall_alert_time = 0
         self.fire_alert_time = 0
         
         # Variables
@@ -770,7 +774,7 @@ class SecuritySystemApp:
         
         # Send alert if fire or smoke detected (after processing all boxes)
         current_time = time.time()
-        if (fire_detected or smoke_detected) and current_time - self.fire_alert_time > self.alert_cooldown:
+        if (fire_detected or smoke_detected) and current_time - self.fire_alert_time > self.fire_alert_cooldown:
             if fire_detected and smoke_detected:
                 alert_message = "🚨 Fire and Smoke detected!"
             elif fire_detected:
@@ -1151,7 +1155,7 @@ class SecuritySystemApp:
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
                     
                     current_time = time.time()
-                    if current_time - self.weapon_alert_time > self.alert_cooldown:
+                    if current_time - self.weapon_alert_time > self.weapon_alert_cooldown:
                         alert_message = "🚨 Weapon detected!"
                         self.add_alert(alert_message, is_important=True)
                         try:
@@ -1205,7 +1209,7 @@ class SecuritySystemApp:
         self.last_person_count = person_count
         
         current_time = time.time()
-        if person_detected_on_track and current_time - self.trespassing_alert_time > self.alert_cooldown:
+        if person_detected_on_track and current_time - self.trespassing_alert_time > self.trespassing_alert_cooldown:
             alert_message = "🚨 Person detected on railway track!"
             self.add_alert(alert_message, is_important=True)
             try:
@@ -1245,7 +1249,7 @@ class SecuritySystemApp:
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
                     
                     current_time = time.time()
-                    if current_time - self.fall_alert_time > self.alert_cooldown:
+                    if current_time - self.fall_alert_time > self.fall_alert_cooldown:
                         alert_message = "🚨 Fall detected!"
                         self.add_alert(alert_message, is_important=True)
                         try:
@@ -1260,6 +1264,110 @@ class SecuritySystemApp:
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         
         return display_frame
+    
+    def process_trespassing_detection_alerts_only(self, frame):
+        """Process trespassing detection for alerts only (no visual modifications)"""
+        height, width = frame.shape[:2]
+        person_detected_on_track = False
+        person_count = 0
+        
+        track_results = self.track_model(frame, verbose=False)[0]
+        track_mask = None
+
+        if track_results.masks:
+            masks = track_results.masks.data.cpu().numpy()
+            combined_mask = np.any(masks > 0.5, axis=0).astype(np.uint8)
+            mask_resized = cv2.resize(combined_mask, (width, height))
+            track_mask = mask_resized
+
+        person_results = self.person_model(frame, verbose=False)[0]
+
+        for box in person_results.boxes:
+            cls = int(box.cls[0])
+            if self.person_model.names[cls] == 'person':
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+                person_count += 1
+
+                if track_mask is not None and track_mask[cy, cx] == 1:
+                    person_detected_on_track = True
+
+        # Update shared person count for crowd detection
+        self.last_person_count = person_count
+        
+        # Send alert if needed
+        current_time = time.time()
+        if person_detected_on_track and current_time - self.trespassing_alert_time > self.trespassing_alert_cooldown:
+            alert_message = "🚨 Person detected on railway track!"
+            self.add_alert(alert_message, is_important=True)
+            try:
+                res = requests.get("http://127.0.0.1:8000/track_alert")
+                self.trespassing_alert_time = current_time
+            except Exception as e:
+                self.add_alert(f"Failed to send alert: {e}")
+        elif not person_detected_on_track:
+            self.trespassing_alert_sent = False
+    
+    def process_fall_detection_alerts_only(self, frame):
+        """Process fall detection for alerts only (no visual modifications)"""
+        if self.fall_model is None:
+            return
+            
+        results = self.fall_model(frame, stream=True, conf=self.fall_confidence_var.get(), verbose=False)
+        
+        for r in results:
+            boxes = r.boxes
+            for box in boxes:
+                cls = int(box.cls[0])
+                label = self.fall_model.names[cls]
+                
+                if label.lower() == "fall-detected":
+                    current_time = time.time()
+                    if current_time - self.fall_alert_time > self.fall_alert_cooldown:
+                        alert_message = "🚨 Fall detected!"
+                        self.add_alert(alert_message, is_important=True)
+                        try:
+                            response = requests.get("http://127.0.0.1:8000/fall_alert")
+                            self.fall_alert_time = current_time
+                        except requests.exceptions.RequestException as e:
+                            self.add_alert(f"Error sending alert: {e}")
+    
+    def process_fall_detection_visual_only(self, frame):
+        """Process fall detection for visual display only (no alerts)"""
+        if self.fall_model is None:
+            return frame
+            
+        display_frame = frame.copy()
+        
+        results = self.fall_model(frame, stream=True, conf=self.fall_confidence_var.get(), verbose=False)
+        
+        for r in results:
+            boxes = r.boxes
+            for box in boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                confidence = box.conf[0].item()
+                cls = int(box.cls[0])
+                label = self.fall_model.names[cls]
+                
+                if label.lower() == "fall-detected":
+                    # Draw bounding box in red for fall detection
+                    cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
+                    cv2.putText(display_frame, f'FALL {confidence:.2f}', (x1, y1 - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                elif label.lower() == "nofall":
+                    # Draw bounding box in green for no-fall
+                    cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.putText(display_frame, f'No Fall {confidence:.2f}', (x1, y1 - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        
+        return display_frame
+    
+    def process_crowd_detection_alerts_only(self, frame):
+        """Process crowd detection for alerts only (no visual modifications)"""
+        # Crowd detection doesn't typically send alerts, just counts
+        # But we can add logic here if needed for crowd-based alerts
+        pass
+    
     
     def update_video(self):
         """Main video update loop - supports multiple models simultaneously"""
@@ -1282,14 +1390,28 @@ class SecuritySystemApp:
             
             if frame is not None:
                 frame = cv2.resize(frame, (640, 480))
+                original_frame = frame.copy()
                 processed_frame = frame.copy()
                 
-                # Apply all active models sequentially to overlay detections
+                # Process each detection on original frame for alerts, but apply visuals sequentially for crisp display
+                # This ensures alerts work independently while maintaining clear visual overlays
+                
                 if "trespassing_detection" in active_models:
+                    # Process for alerts on clean frame
+                    self.process_trespassing_detection_alerts_only(original_frame.copy())
+                    # Apply visual overlays to display frame
                     processed_frame = self.process_trespassing_detection(processed_frame)
+                    
                 if "fall_detection" in active_models:
-                    processed_frame = self.process_fall_detection(processed_frame)
+                    # Process for alerts on clean frame  
+                    self.process_fall_detection_alerts_only(original_frame.copy())
+                    # Apply visual overlays to display frame
+                    processed_frame = self.process_fall_detection_visual_only(processed_frame)
+                    
                 if "crowd_detection" in active_models:
+                    # Process for alerts on clean frame
+                    self.process_crowd_detection_alerts_only(original_frame.copy())
+                    # Apply visual overlays to display frame
                     processed_frame = self.process_crowd_detection(processed_frame)
                 
                 # Display on unified label
