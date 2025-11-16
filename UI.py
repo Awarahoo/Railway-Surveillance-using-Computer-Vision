@@ -45,17 +45,13 @@ class SecuritySystemApp:
         
         # Initialize all attributes
         self.video_file_path = None
-        self.weapon_alert_sent = False
         self.trespassing_alert_sent = False
-        self.weapon_alert_time = 0
         self.trespassing_alert_time = 0
         self.fall_alert_time = 0
         
         # Individual cooldown periods for each alert type (in seconds)
-        self.weapon_alert_cooldown = 5
         self.trespassing_alert_cooldown = 5
         self.fall_alert_cooldown = 5
-        self.fire_alert_cooldown = 5
         
         # Shared person count between trespassing and crowd detection
         self.last_person_count = 0
@@ -63,24 +59,17 @@ class SecuritySystemApp:
         self.cap = None
         self.video_capture = None
         self.current_frame = None
-        self.weapon_detection_mode = None
         self.trespassing_detection_mode = None
         self.fall_detection_mode = None
         self.crowd_detection_mode = None
-        self.fire_detection_mode = None
-        self.dustbin_detection_mode = None
-        self.fire_alert_time = 0
         
         # Variables
         self.running = True
         self.active_module = None
         self.modules = {
-            "weapon_detection": {"active": False, "tab": None},
             "trespassing_detection": {"active": False, "tab": None},
             "fall_detection": {"active": False, "tab": None},
-            "crowd_detection": {"active": False, "tab": None},
-            "fire_detection": {"active": False, "tab": None},
-            "dustbin_detection": {"active": False, "tab": None}
+            "crowd_detection": {"active": False, "tab": None}
         }
         
         # Initialize models
@@ -95,7 +84,6 @@ class SecuritySystemApp:
     def initialize_models(self):
         """Initialize all the required models"""
         try:
-            self.weapon_model = None  # Weapon detection disabled
             self.track_model = YOLO("train_segmented.pt")
             self.person_model = YOLO("yolo11n.pt")
             self.crowd_model = YOLO("yolo11n.pt")
@@ -110,9 +98,6 @@ class SecuritySystemApp:
             except Exception as e:
                 print(f"Warning: Failed to initialize fall detection model: {str(e)}. Fall detection will be disabled.")
                 self.fall_model = None
-            # Fire and dustbin detection disabled
-            self.fire_model = None
-            self.dustbin_model = None
         except Exception as e:
             messagebox.showerror("Error", f"Failed to initialize models: {str(e)}")
             self.root.destroy()
@@ -299,57 +284,6 @@ class SecuritySystemApp:
         self.stop_btn.config(state=tk.DISABLED)
         self.start_file_btn.config(state=tk.NORMAL if hasattr(self, 'unified_video_path') else tk.DISABLED)
     
-    def setup_weapon_detection_tab(self):
-        """Setup the weapon detection module tab"""
-        tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="Weapon Detection")
-        self.modules["weapon_detection"]["tab"] = tab
-        
-        video_frame = ttk.LabelFrame(tab, text="Detection Feed")
-        video_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        self.weapon_video_label = ttk.Label(video_frame)
-        self.weapon_video_label.pack(fill=tk.BOTH, expand=True)
-        
-        control_frame = ttk.Frame(tab, width=300)
-        control_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=5, pady=5)
-        control_frame.pack_propagate(False)
-        
-        weapon_ctrl_frame = ttk.LabelFrame(control_frame, text="Weapon Detection")
-        weapon_ctrl_frame.pack(fill=tk.X, pady=5)
-        
-        self.select_weapon_file_btn = ttk.Button(weapon_ctrl_frame, text="Select Video File", 
-                                              command=self.select_weapon_video_file)
-        self.select_weapon_file_btn.pack(fill=tk.X, pady=5)
-        
-        self.start_weapon_file_btn = ttk.Button(weapon_ctrl_frame, text="Start File Detection", 
-                                             command=lambda: self.start_weapon_detection('file'),
-                                             state=tk.DISABLED)
-        self.start_weapon_file_btn.pack(fill=tk.X, pady=5)
-        
-        self.start_weapon_realtime_btn = ttk.Button(weapon_ctrl_frame, text="Start Realtime Detection", 
-                                                 command=lambda: self.start_weapon_detection('realtime'))
-        self.start_weapon_realtime_btn.pack(fill=tk.X, pady=5)
-        
-        self.stop_weapon_btn = ttk.Button(weapon_ctrl_frame, text="Stop Detection", 
-                                        command=self.stop_weapon_detection,
-                                        state=tk.DISABLED)
-        self.stop_weapon_btn.pack(fill=tk.X, pady=5)
-        
-        self.confidence_var = tk.DoubleVar(value=0.5)
-        confidence_frame = ttk.LabelFrame(control_frame, text="Confidence Threshold")
-        confidence_frame.pack(fill=tk.X, pady=5)
-        
-        self.confidence_slider = ttk.Scale(confidence_frame, from_=0.1, to=0.9, 
-                                         variable=self.confidence_var,
-                                         command=lambda v: self.confidence_var.set(round(float(v), 1)))
-        self.confidence_slider.pack(fill=tk.X, padx=5, pady=5)
-        
-        self.confidence_label = ttk.Label(confidence_frame, text=f"Current: {self.confidence_var.get():.1f}")
-        self.confidence_label.pack()
-        
-        self.confidence_var.trace_add("write", lambda *_: self.confidence_label.config(
-            text=f"Current: {self.confidence_var.get():.1f}"))
     
     def setup_trespassing_detection_tab(self):
         """Setup the trespassing detection module tab"""
@@ -451,33 +385,21 @@ class SecuritySystemApp:
             self.video_capture.release()
             self.video_capture = None
         
-        if selected_tab == "Weapon Detection":
-            self.modules["weapon_detection"]["active"] = True
-        elif selected_tab == "Trespassing Detection":
+        if selected_tab == "Trespassing Detection":
             self.modules["trespassing_detection"]["active"] = True
         elif selected_tab == "Fall Detection":
             self.modules["fall_detection"]["active"] = True
         elif selected_tab == "Crowd Density":
             self.modules["crowd_detection"]["active"] = True
-        elif selected_tab == "Fire Detection":
-            self.modules["fire_detection"]["active"] = True
-        elif selected_tab == "Dustbin Health":
-            self.modules["dustbin_detection"]["active"] = True
     
     def stop_all_detections(self):
         """Stop all active detections"""
-        if self.modules["weapon_detection"]["active"]:
-            self.stop_weapon_detection()
         if self.modules["trespassing_detection"]["active"]:
             self.stop_trespassing_detection()
         if self.modules["fall_detection"]["active"]:
             self.stop_fall_detection()
         if self.modules["crowd_detection"]["active"]:
             self.stop_crowd_detection()
-        if self.modules["fire_detection"]["active"]:
-            self.stop_fire_detection()
-        if self.modules["dustbin_detection"]["active"]:
-            self.stop_dustbin_detection()
 
     def setup_crowd_detection_tab(self):
         """Setup the crowd density detection module tab"""
@@ -624,375 +546,6 @@ class SecuritySystemApp:
 
         return display_frame
     
-    def setup_fire_detection_tab(self):
-        """Setup the fire detection module tab"""
-        tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="Fire Detection")
-        self.modules["fire_detection"]["tab"] = tab
-        
-        video_frame = ttk.LabelFrame(tab, text="Detection Feed")
-        video_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        self.fire_video_label = ttk.Label(video_frame)
-        self.fire_video_label.pack(fill=tk.BOTH, expand=True)
-        
-        control_frame = ttk.Frame(tab, width=300)
-        control_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=5, pady=5)
-        control_frame.pack_propagate(False)
-        
-        fire_ctrl_frame = ttk.LabelFrame(control_frame, text="Fire Detection")
-        fire_ctrl_frame.pack(fill=tk.X, pady=5)
-        
-        self.select_fire_file_btn = ttk.Button(fire_ctrl_frame, text="Select Video File", 
-                                                    command=self.select_fire_video_file)
-        self.select_fire_file_btn.pack(fill=tk.X, pady=5)
-        
-        self.start_fire_file_btn = ttk.Button(fire_ctrl_frame, text="Start File Detection", 
-                                                  command=lambda: self.start_fire_detection('file'),
-                                                  state=tk.DISABLED)
-        self.start_fire_file_btn.pack(fill=tk.X, pady=5)
-        
-        self.start_fire_realtime_btn = ttk.Button(fire_ctrl_frame, text="Start Realtime Detection", 
-                                                      command=lambda: self.start_fire_detection('realtime'))
-        self.start_fire_realtime_btn.pack(fill=tk.X, pady=5)
-        
-        self.stop_fire_btn = ttk.Button(fire_ctrl_frame, text="Stop Detection", 
-                                             command=self.stop_fire_detection,
-                                             state=tk.DISABLED)
-        self.stop_fire_btn.pack(fill=tk.X, pady=5)
-        
-        # Confidence threshold for fire detection
-        self.fire_confidence_var = tk.DoubleVar(value=0.5)
-        fire_confidence_frame = ttk.LabelFrame(control_frame, text="Confidence Threshold")
-        fire_confidence_frame.pack(fill=tk.X, pady=5)
-        
-        self.fire_confidence_slider = ttk.Scale(fire_confidence_frame, from_=0.1, to=0.9, 
-                                         variable=self.fire_confidence_var,
-                                         command=lambda v: self.fire_confidence_var.set(round(float(v), 1)))
-        self.fire_confidence_slider.pack(fill=tk.X, padx=5, pady=5)
-        
-        self.fire_confidence_label = ttk.Label(fire_confidence_frame, text=f"Current: {self.fire_confidence_var.get():.1f}")
-        self.fire_confidence_label.pack()
-        
-        self.fire_confidence_var.trace_add("write", lambda *_: self.fire_confidence_label.config(
-            text=f"Current: {self.fire_confidence_var.get():.1f}"))
-    
-    def select_fire_video_file(self):
-        """Select video file for fire detection"""
-        file_path = filedialog.askopenfilename(
-            title="Select Video File",
-            filetypes=[("Video files", "*.mp4 *.avi *.mov")]
-        )
-        if file_path:
-            self.fire_video_path = file_path
-            self.add_alert(f"Fire detection video set: {os.path.basename(file_path)}")
-            self.start_fire_file_btn.config(state=tk.NORMAL)
-    
-    def start_fire_detection(self, mode):
-        """Start fire detection in specified mode"""
-        if self.fire_model is None:
-            messagebox.showerror("Error", "Fire detection model not available. Please ensure the model file exists.")
-            return
-            
-        self.fire_detection_mode = mode
-        
-        if mode == 'file' and not hasattr(self, 'fire_video_path'):
-            messagebox.showwarning("Warning", "Please select a video file first!")
-            return
-            
-        if mode == 'realtime':
-            if self.cap is None:
-                self.cap = cv2.VideoCapture(0)
-                self.cap.set(cv2.CAP_PROP_FPS, 30)
-                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        else:
-            self.video_capture = cv2.VideoCapture(self.fire_video_path)
-        
-        self.modules["fire_detection"]["active"] = True
-        self.add_alert(f"Fire detection started ({mode} mode)")
-        
-        self.select_fire_file_btn.config(state=tk.DISABLED)
-        self.start_fire_file_btn.config(state=tk.DISABLED)
-        self.start_fire_realtime_btn.config(state=tk.DISABLED)
-        self.stop_fire_btn.config(state=tk.NORMAL)
-    
-    def stop_fire_detection(self):
-        """Stop fire detection"""
-        self.modules["fire_detection"]["active"] = False
-        self.fire_detection_mode = None
-        
-        if self.video_capture is not None:
-            self.video_capture.release()
-            self.video_capture = None
-            
-        if self.cap is not None and not any(module["active"] for module in self.modules.values()):
-            self.cap.release()
-            self.cap = None
-        
-        self.add_alert("Fire detection stopped")
-        
-        self.select_fire_file_btn.config(state=tk.NORMAL)
-        self.start_fire_file_btn.config(state=tk.NORMAL if hasattr(self, 'fire_video_path') else tk.DISABLED)
-        self.start_fire_realtime_btn.config(state=tk.NORMAL)
-        self.stop_fire_btn.config(state=tk.DISABLED)
-    
-    def process_fire_detection(self, frame):
-        """Process frame for fire and smoke detection with 5-second alert delay"""
-        if self.fire_model is None:
-            return frame
-            
-        display_frame = frame.copy()
-        fire_detected = False
-        smoke_detected = False
-        
-        results = self.fire_model(frame, stream=True, conf=self.fire_confidence_var.get(), verbose=False)
-        
-        for r in results:
-            boxes = r.boxes
-            for box in boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                confidence = box.conf[0].item()
-                cls = int(box.cls[0])
-                label = self.fire_model.names[cls]
-                
-                if label == "Fire":
-                    fire_detected = True
-                    
-                    # Draw bounding box in orange/red for fire detection
-                    cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 69, 255), 3)
-                    cv2.putText(display_frame, f'FIRE {confidence:.2f}', (x1, y1 - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 69, 255), 2)
-                    
-                elif label == "smoke":
-                    smoke_detected = True
-                    
-                    # Draw bounding box in gray/white for smoke detection
-                    cv2.rectangle(display_frame, (x1, y1), (x2, y2), (192, 192, 192), 3)
-                    cv2.putText(display_frame, f'SMOKE {confidence:.2f}', (x1, y1 - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (192, 192, 192), 2)
-        
-        # Send alert if fire or smoke detected (after processing all boxes)
-        current_time = time.time()
-        if (fire_detected or smoke_detected) and current_time - self.fire_alert_time > self.fire_alert_cooldown:
-            if fire_detected and smoke_detected:
-                alert_message = "🚨 Fire and Smoke detected!"
-            elif fire_detected:
-                alert_message = "🚨 Fire detected!"
-            else:
-                alert_message = "🚨 Smoke detected!"
-            
-            self.add_alert(alert_message, is_important=True)
-            try:
-                response = requests.get("http://127.0.0.1:8000/fire_alert")
-                self.fire_alert_time = current_time
-            except requests.exceptions.RequestException as e:
-                self.add_alert(f"Error sending alert: {e}")
-        
-        return display_frame
-
-    def setup_dustbin_detection_tab(self):
-        """Setup the dustbin health detection module tab"""
-        tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="Dustbin Health")
-        self.modules["dustbin_detection"]["tab"] = tab
-
-        video_frame = ttk.LabelFrame(tab, text="Detection Feed")
-        video_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        self.dustbin_video_label = ttk.Label(video_frame)
-        self.dustbin_video_label.pack(fill=tk.BOTH, expand=True)
-
-        control_frame = ttk.Frame(tab, width=300)
-        control_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=5, pady=5)
-        control_frame.pack_propagate(False)
-
-        dustbin_ctrl_frame = ttk.LabelFrame(control_frame, text="Dustbin Health Detection")
-        dustbin_ctrl_frame.pack(fill=tk.X, pady=5)
-
-        self.select_dustbin_file_btn = ttk.Button(dustbin_ctrl_frame, text="Select Video File", 
-                                                  command=self.select_dustbin_video_file)
-        self.select_dustbin_file_btn.pack(fill=tk.X, pady=5)
-
-        self.start_dustbin_file_btn = ttk.Button(dustbin_ctrl_frame, text="Start File Detection", 
-                                                 command=lambda: self.start_dustbin_detection('file'),
-                                                 state=tk.DISABLED)
-        self.start_dustbin_file_btn.pack(fill=tk.X, pady=5)
-
-        self.start_dustbin_realtime_btn = ttk.Button(dustbin_ctrl_frame, text="Start Realtime Detection", 
-                                                      command=lambda: self.start_dustbin_detection('realtime'))
-        self.start_dustbin_realtime_btn.pack(fill=tk.X, pady=5)
-
-        self.stop_dustbin_btn = ttk.Button(dustbin_ctrl_frame, text="Stop Detection", 
-                                            command=self.stop_dustbin_detection,
-                                            state=tk.DISABLED)
-        self.stop_dustbin_btn.pack(fill=tk.X, pady=5)
-
-        # Confidence threshold for dustbin detection
-        self.dustbin_confidence_var = tk.DoubleVar(value=0.5)
-        dustbin_confidence_frame = ttk.LabelFrame(control_frame, text="Confidence Threshold")
-        dustbin_confidence_frame.pack(fill=tk.X, pady=5)
-
-        self.dustbin_confidence_slider = ttk.Scale(dustbin_confidence_frame, from_=0.1, to=0.9, 
-                                                   variable=self.dustbin_confidence_var,
-                                                   command=lambda v: self.dustbin_confidence_var.set(round(float(v), 1)))
-        self.dustbin_confidence_slider.pack(fill=tk.X, padx=5, pady=5)
-
-        self.dustbin_confidence_label = ttk.Label(dustbin_confidence_frame, text=f"Current: {self.dustbin_confidence_var.get():.1f}")
-        self.dustbin_confidence_label.pack()
-
-        self.dustbin_confidence_var.trace_add("write", lambda *_: self.dustbin_confidence_label.config(
-            text=f"Current: {self.dustbin_confidence_var.get():.1f}"))
-
-        # Live counts per label
-        self.dustbin_counts_text = tk.Text(control_frame, height=10, state=tk.DISABLED)
-        self.dustbin_counts_text.pack(fill=tk.BOTH, expand=False, padx=5, pady=5)
-
-    def select_dustbin_video_file(self):
-        """Select video file for dustbin health detection"""
-        file_path = filedialog.askopenfilename(
-            title="Select Video File",
-            filetypes=[("Video files", "*.mp4 *.avi *.mov")]
-        )
-        if file_path:
-            self.dustbin_video_path = file_path
-            self.add_alert(f"Dustbin detection video set: {os.path.basename(file_path)}")
-            self.start_dustbin_file_btn.config(state=tk.NORMAL)
-
-    def start_dustbin_detection(self, mode):
-        """Start dustbin detection in specified mode"""
-        if getattr(self, 'dustbin_model', None) is None:
-            messagebox.showerror("Error", "Dustbin model not available. Ensure dustbin.pt exists.")
-            return
-
-        self.dustbin_detection_mode = mode
-
-        if mode == 'file' and not hasattr(self, 'dustbin_video_path'):
-            messagebox.showwarning("Warning", "Please select a video file first!")
-            return
-
-        if mode == 'realtime':
-            if self.cap is None:
-                self.cap = cv2.VideoCapture(0)
-                self.cap.set(cv2.CAP_PROP_FPS, 30)
-                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        else:
-            self.video_capture = cv2.VideoCapture(self.dustbin_video_path)
-
-        self.modules["dustbin_detection"]["active"] = True
-        self.add_alert(f"Dustbin detection started ({mode} mode)")
-
-        self.select_dustbin_file_btn.config(state=tk.DISABLED)
-        self.start_dustbin_file_btn.config(state=tk.DISABLED)
-        self.start_dustbin_realtime_btn.config(state=tk.DISABLED)
-        self.stop_dustbin_btn.config(state=tk.NORMAL)
-
-    def stop_dustbin_detection(self):
-        """Stop dustbin detection"""
-        self.modules["dustbin_detection"]["active"] = False
-        self.dustbin_detection_mode = None
-
-        if self.video_capture is not None:
-            self.video_capture.release()
-            self.video_capture = None
-
-        if self.cap is not None and not any(module["active"] for module in self.modules.values()):
-            self.cap.release()
-            self.cap = None
-
-        self.add_alert("Dustbin detection stopped")
-
-        self.select_dustbin_file_btn.config(state=tk.NORMAL)
-        self.start_dustbin_file_btn.config(state=tk.NORMAL if hasattr(self, 'dustbin_video_path') else tk.DISABLED)
-        self.start_dustbin_realtime_btn.config(state=tk.NORMAL)
-        self.stop_dustbin_btn.config(state=tk.DISABLED)
-
-    def process_dustbin_detection(self, frame):
-        """Process frame for dustbin health detection and counts"""
-        if getattr(self, 'dustbin_model', None) is None:
-            return frame
-
-        display_frame = frame.copy()
-        results = self.dustbin_model(frame, conf=self.dustbin_confidence_var.get(), verbose=False)
-        res0 = results[0]
-
-        # Count per label
-        counts = {}
-        for box in res0.boxes:
-            cls = int(box.cls[0])
-            label = self.dustbin_model.names[cls]
-            counts[label] = counts.get(label, 0) + 1
-
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
-            cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(display_frame, f"{label}", (x1, y1 - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-        # Update counts panel
-        self.dustbin_counts_text.config(state=tk.NORMAL)
-        self.dustbin_counts_text.delete('1.0', tk.END)
-        for name in ['Broken trash can', 'Close_empty', 'Close_full', 'Healthy trash can', 'Open_empty', 'Open_full', 'Trash flow', 'closed', 'empty', 'full']:
-            self.dustbin_counts_text.insert(tk.END, f"{name}: {counts.get(name, 0)}\n")
-        self.dustbin_counts_text.config(state=tk.DISABLED)
-
-        return display_frame
-    
-    def select_weapon_video_file(self):
-        """Select video file for weapon detection"""
-        file_path = filedialog.askopenfilename(
-            title="Select Video File",
-            filetypes=[("Video files", "*.mp4 *.avi *.mov")]
-        )
-        if file_path:
-            self.weapon_video_path = file_path
-            self.add_alert(f"Weapon detection video set: {os.path.basename(file_path)}")
-            self.start_weapon_file_btn.config(state=tk.NORMAL)
-    
-    def start_weapon_detection(self, mode):
-        """Start weapon detection in specified mode"""
-        self.weapon_detection_mode = mode
-        
-        if mode == 'file' and not hasattr(self, 'weapon_video_path'):
-            messagebox.showwarning("Warning", "Please select a video file first!")
-            return
-            
-        if mode == 'realtime':
-            if self.cap is None:
-                self.cap = cv2.VideoCapture(0)
-                self.cap.set(cv2.CAP_PROP_FPS, 30)
-                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        else:
-            self.video_capture = cv2.VideoCapture(self.weapon_video_path)
-        
-        self.modules["weapon_detection"]["active"] = True
-        self.add_alert(f"Weapon detection started ({mode} mode)")
-        
-        self.select_weapon_file_btn.config(state=tk.DISABLED)
-        self.start_weapon_file_btn.config(state=tk.DISABLED)
-        self.start_weapon_realtime_btn.config(state=tk.DISABLED)
-        self.stop_weapon_btn.config(state=tk.NORMAL)
-    
-    def stop_weapon_detection(self):
-        """Stop weapon detection"""
-        self.modules["weapon_detection"]["active"] = False
-        self.weapon_detection_mode = None
-        
-        if self.video_capture is not None:
-            self.video_capture.release()
-            self.video_capture = None
-            
-        if self.cap is not None and not any(module["active"] for module in self.modules.values()):
-            self.cap.release()
-            self.cap = None
-        
-        self.add_alert("Weapon detection stopped")
-        
-        self.select_weapon_file_btn.config(state=tk.NORMAL)
-        self.start_weapon_file_btn.config(state=tk.NORMAL if hasattr(self, 'weapon_video_path') else tk.DISABLED)
-        self.start_weapon_realtime_btn.config(state=tk.NORMAL)
-        self.stop_weapon_btn.config(state=tk.DISABLED)
-    
     def select_trespassing_video_file(self):
         """Select video file for trespassing detection"""
         file_path = filedialog.askopenfilename(
@@ -1132,42 +685,6 @@ class SecuritySystemApp:
         """Show popup alert window"""
         AlertWindow(self.root, message)
     
-    def process_weapon_detection(self, frame):
-        """Process frame for weapon detection with 5-second alert delay"""
-        display_frame = frame.copy()
-        weapon_detected = False
-        
-        results = self.weapon_model(frame, stream=True, conf=self.confidence_var.get(), verbose=False)
-        
-        for r in results:
-            boxes = r.boxes
-            for box in boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                confidence = box.conf[0].item()
-                cls = int(box.cls[0])
-                label = self.weapon_model.names[cls]
-                
-                if label.lower() == "weapon":
-                    weapon_detected = True
-                    
-                    cv2.rectangle(display_frame, (x1, y1), (x2, y2), (255, 0, 255), 3)
-                    cv2.putText(display_frame, f'{label} {confidence:.2f}', (x1, y1 - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-                    
-                    current_time = time.time()
-                    if current_time - self.weapon_alert_time > self.weapon_alert_cooldown:
-                        alert_message = "🚨 Weapon detected!"
-                        self.add_alert(alert_message, is_important=True)
-                        try:
-                            response = requests.get("http://127.0.0.1:8000/weapon_alert")
-                            self.weapon_alert_time = current_time
-                        except requests.exceptions.RequestException as e:
-                            self.add_alert(f"Error sending alert: {e}")
-        
-        if not weapon_detected:
-            self.weapon_alert_sent = False
-        
-        return display_frame
     
     def process_trespassing_detection(self, frame):
         """Process frame for trespassing detection with 5-second alert delay"""
