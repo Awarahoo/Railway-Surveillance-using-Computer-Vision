@@ -7,4 +7,8 @@ guntest.mp4
 tracktestvideo.mp4
 *.avi
 *.mov
-
+# Bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
